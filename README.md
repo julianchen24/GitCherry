@@ -1,2 +1,2 @@
-# CherryCLI
+# Git Cherry Pick CLI
 under construction...
