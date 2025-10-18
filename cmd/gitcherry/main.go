@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log"
 	"os"
 	"os/signal"
@@ -32,13 +31,9 @@ func newRootCommand() *cobra.Command {
 			ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			cfg, err := config.LoadDefault()
+			cfg, err := config.Load(".")
 			if err != nil {
-				if errors.Is(err, config.ErrConfigNotFound) {
-					cfg = config.Default()
-				} else {
-					return err
-				}
+				return err
 			}
 
 			audit := logs.NewAuditLog()
