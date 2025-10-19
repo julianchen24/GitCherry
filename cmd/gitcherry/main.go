@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,15 +11,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/julianchen24/gitcherry/internal/config"
+	"github.com/julianchen24/gitcherry/internal/git"
 	"github.com/julianchen24/gitcherry/internal/logs"
 	"github.com/julianchen24/gitcherry/internal/ops"
 	"github.com/julianchen24/gitcherry/internal/tui"
 )
 
+const dirtyWorktreeMessage = "Uncommitted changes detected. Please commit or stash before proceeding."
+
 func main() {
 	rootCmd := newRootCommand()
 	if err := rootCmd.Execute(); err != nil {
-		log.Fatal(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
 
@@ -29,6 +32,7 @@ func newRootCommand() *cobra.Command {
 		flagRefresh   bool
 		flagApply     bool
 		flagNoPreview bool
+		flagTUI       bool
 	)
 
 	cmd := &cobra.Command{
@@ -48,9 +52,19 @@ func newRootCommand() *cobra.Command {
 				merged.AutoRefresh = true
 			}
 
-			ctx := context.WithValue(cmd.Context(), ctxConfigKey{}, &merged)
+			clean, err := git.IsClean()
+			if err != nil {
+				return err
+			}
+			if !clean {
+				return fmt.Errorf(dirtyWorktreeMessage)
+			}
+
+			ctx := cmd.Context()
+			ctx = context.WithValue(ctx, ctxConfigKey{}, &merged)
 			ctx = context.WithValue(ctx, ctxApplyKey{}, flagApply)
 			ctx = context.WithValue(ctx, ctxRefreshKey{}, flagRefresh)
+			ctx = context.WithValue(ctx, ctxTUIKey{}, flagTUI)
 			cmd.SetContext(ctx)
 			return nil
 		},
@@ -69,7 +83,7 @@ func newRootCommand() *cobra.Command {
 			app := tui.NewApp()
 			runner := ops.NewRunner(app, cfg, audit)
 
-			if !flagApply {
+			if !isApply(ctx) {
 				printDryRunNotice("session")
 			}
 
@@ -80,6 +94,7 @@ func newRootCommand() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&flagRefresh, "refresh", false, "Fetch latest remote refs before operations")
 	cmd.PersistentFlags().BoolVar(&flagApply, "apply", false, "Execute operations instead of dry-run")
 	cmd.PersistentFlags().BoolVar(&flagNoPreview, "no-preview", false, "Disable preview before applying changes")
+	cmd.PersistentFlags().BoolVar(&flagTUI, "tui", false, "Launch the interactive TUI")
 
 	cmd.AddCommand(newTransferCmd())
 	cmd.AddCommand(newRevertCmd())
@@ -88,6 +103,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newRedoCmd())
 
 	cmd.SetContext(context.Background())
+	cmd.SilenceUsage = true
 
 	return cmd
 }
@@ -95,6 +111,7 @@ func newRootCommand() *cobra.Command {
 type ctxConfigKey struct{}
 type ctxApplyKey struct{}
 type ctxRefreshKey struct{}
+type ctxTUIKey struct{}
 
 func configFromContext(ctx context.Context) *config.Config {
 	if ctx == nil {
@@ -169,6 +186,16 @@ func isRefresh(ctx context.Context) bool {
 	}
 	if refresh, ok := ctx.Value(ctxRefreshKey{}).(bool); ok {
 		return refresh
+	}
+	return false
+}
+
+func isTUI(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	if tui, ok := ctx.Value(ctxTUIKey{}).(bool); ok {
+		return tui
 	}
 	return false
 }
