@@ -13,7 +13,10 @@ import (
 	"github.com/julianchen24/gitcherry/internal/git"
 )
 
-var listBranchesFunc = git.ListBranches
+var (
+	listBranchesFunc   = git.ListBranches
+	commitsBetweenFunc = git.CommitsBetween
+)
 
 // App represents the terminal UI for GitCherry.
 type App struct {
@@ -29,13 +32,17 @@ type App struct {
 	PreviewModal *tview.Modal
 	HelpModal    *tview.Modal
 
-		refreshBanner *tview.TextView
+	refreshBanner *tview.TextView
 
-		branchStage  int
-		branchSource string
-		branchTarget string
+	branchStage  int
+	branchSource string
+	branchTarget string
 
-		helpVisible bool
+	commits     []git.Commit
+	commitStart int
+	commitEnd   int
+
+	helpVisible bool
 }
 
 // NewApp constructs a new TUI application.
@@ -48,9 +55,11 @@ func NewApp(runner *git.Runner, cfg *config.Config) *App {
 	}
 
 	app := &App{
-		runner: runner,
-		config: cfg,
-		ui:     tview.NewApplication(),
+		runner:      runner,
+		config:      cfg,
+		ui:          tview.NewApplication(),
+		commitStart: -1,
+		commitEnd:   -1,
 	}
 
 	app.initialiseViews()
@@ -124,10 +133,15 @@ func (a *App) initialiseViews() {
 	})
 
 	a.CommitList = tview.NewList()
-	a.CommitList.ShowSecondaryText(false)
+	a.CommitList.ShowSecondaryText(true)
 	a.CommitList.SetTitle("Commits")
 	a.CommitList.SetBorder(true)
+	a.CommitList.SetSelectedBackgroundColor(tcell.ColorGreen)
+	a.CommitList.SetSelectedTextColor(tcell.ColorBlack)
 	a.CommitList.AddItem("(select a branch)", "", 0, nil)
+	a.CommitList.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		a.confirmCommitRange(index)
+	})
 
 	a.PreviewModal = tview.NewModal().
 		SetText("Preview not available yet").
@@ -182,6 +196,12 @@ func (a *App) bindKeys() {
 			case 'q', 'Q':
 				a.Stop()
 				return nil
+			case ' ':
+				if a.ui.GetFocus() == a.CommitList {
+					index := a.CommitList.GetCurrentItem()
+					a.markCommitStart(index)
+					return nil
+				}
 			}
 		case tcell.KeyCtrlC:
 			a.Stop()
@@ -245,8 +265,82 @@ func (a *App) previewCommitSelectionPrompt() {
 }
 
 func (a *App) showCommitListForSource() {
-	a.CommitList.Clear()
-	message := fmt.Sprintf("Commits for %s → %s (preview only)", a.branchSource, a.branchTarget)
-	a.CommitList.AddItem(message, "", 0, nil)
+	a.commitStart = -1
+	a.commitEnd = -1
+	a.commitTargetReset()
 	a.ui.SetFocus(a.CommitList)
+}
+
+func (a *App) commitTargetReset() {
+	a.CommitList.Clear()
+	commits, err := commitsBetweenFunc(a.branchTarget, a.branchSource)
+	a.commits = commits
+
+	if err != nil {
+		a.CommitList.AddItem(fmt.Sprintf("Error loading commits: %v", err), "", 0, nil)
+		return
+	}
+
+	if len(commits) == 0 {
+		a.CommitList.AddItem(fmt.Sprintf("No commits to transfer from %s to %s", a.branchSource, a.branchTarget), "", 0, nil)
+		return
+	}
+
+	for _, commit := range commits {
+		title := commit.Message
+		if strings.TrimSpace(title) == "" {
+			title = commit.Hash
+		}
+		secondary := commit.Hash
+		a.CommitList.AddItem(title, secondary, 0, nil)
+	}
+	a.CommitList.SetCurrentItem(0)
+}
+
+func (a *App) markCommitStart(index int) {
+	if index < 0 || index >= len(a.commits) {
+		return
+	}
+	a.commitStart = index
+	a.commitEnd = index
+}
+
+func (a *App) confirmCommitRange(index int) {
+	if len(a.commits) == 0 {
+		return
+	}
+	if index < 0 || index >= len(a.commits) {
+		index = a.CommitList.GetCurrentItem()
+	}
+	if index < 0 || index >= len(a.commits) {
+		return
+	}
+	if a.commitStart < 0 || a.commitStart >= len(a.commits) {
+		a.markCommitStart(index)
+	}
+
+	if index < a.commitStart {
+		a.commitEnd = a.commitStart
+		a.commitStart = index
+	} else {
+		a.commitEnd = index
+	}
+
+	startCommit := a.commits[a.commitStart]
+	endCommit := a.commits[a.commitEnd]
+
+	text := fmt.Sprintf("Planned range:\n%s → %s\nTotal commits: %d",
+		startCommit.Hash, endCommit.Hash, a.commitEnd-a.commitStart+1)
+	a.PreviewModal.SetText(text)
+	a.pages.ShowPage("preview")
+	a.ui.SetFocus(a.PreviewModal)
+}
+
+// SelectedRange returns the hash bounds for the current selection if available.
+func (a *App) SelectedRange() (string, string, bool) {
+	if a.commitStart < 0 || a.commitEnd < 0 ||
+		a.commitStart >= len(a.commits) || a.commitEnd >= len(a.commits) {
+		return "", "", false
+	}
+	return a.commits[a.commitStart].Hash, a.commits[a.commitEnd].Hash, true
 }

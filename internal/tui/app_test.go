@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/julianchen24/gitcherry/internal/config"
+	"github.com/julianchen24/gitcherry/internal/git"
 )
 
 func withStubBranches(t *testing.T, branches []string, err error) {
@@ -18,8 +19,19 @@ func withStubBranches(t *testing.T, branches []string, err error) {
 	})
 }
 
+func withStubCommits(t *testing.T, commits []git.Commit, err error) {
+	original := commitsBetweenFunc
+	commitsBetweenFunc = func(base, head string) ([]git.Commit, error) {
+		return commits, err
+	}
+	t.Cleanup(func() {
+		commitsBetweenFunc = original
+	})
+}
+
 func TestNewAppInitializes(t *testing.T) {
 	withStubBranches(t, []string{"main"}, nil)
+	withStubCommits(t, nil, nil)
 
 	cfg := config.Default()
 	cfg.AutoRefresh = false
@@ -37,6 +49,7 @@ func TestNewAppInitializes(t *testing.T) {
 
 func TestToggleHelp(t *testing.T) {
 	withStubBranches(t, []string{"main"}, nil)
+	withStubCommits(t, nil, nil)
 
 	app := NewApp(nil, config.Default())
 	require.False(t, app.HelpVisible())
@@ -48,26 +61,35 @@ func TestToggleHelp(t *testing.T) {
 	require.False(t, app.HelpVisible())
 }
 
-func TestBranchSelectionFlow(t *testing.T) {
+func TestBranchSelectionFlowAndCommitRange(t *testing.T) {
 	withStubBranches(t, []string{"main", "feature"}, nil)
+	commits := []git.Commit{
+		{Hash: "c1", Message: "First"},
+		{Hash: "c2", Message: "Second"},
+		{Hash: "c3", Message: "Third"},
+	}
+	withStubCommits(t, commits, nil)
 
-	cfg := config.Default()
-	app := NewApp(nil, cfg)
-
+	app := NewApp(nil, config.Default())
 	require.Equal(t, 2, app.BranchList.GetItemCount())
 	require.Equal(t, 0, app.branchStage)
 
 	app.handleBranchSelection("main")
 	require.Equal(t, "main", app.branchSource)
 	require.Equal(t, 1, app.branchStage)
-	mainText, _ := app.CommitList.GetItemText(0)
-	require.Contains(t, mainText, "Select target branch")
-	require.Contains(t, mainText, "main")
+	msg, _ := app.CommitList.GetItemText(0)
+	require.Contains(t, msg, "Select target branch")
 
 	app.handleBranchSelection("feature")
 	require.Equal(t, "feature", app.branchTarget)
 	require.Equal(t, 2, app.branchStage)
-	mainText, _ = app.CommitList.GetItemText(0)
-	require.Contains(t, mainText, "Commits for main")
-	require.Contains(t, mainText, "feature")
+	require.Equal(t, len(commits), app.CommitList.GetItemCount())
+
+	app.markCommitStart(0)
+	app.confirmCommitRange(2)
+
+	start, end, ok := app.SelectedRange()
+	require.True(t, ok)
+	require.Equal(t, "c1", start)
+	require.Equal(t, "c3", end)
 }
