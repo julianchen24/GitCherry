@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/gdamore/tcell/v2"
@@ -10,6 +12,8 @@ import (
 	"github.com/julianchen24/gitcherry/internal/config"
 	"github.com/julianchen24/gitcherry/internal/git"
 )
+
+var listBranchesFunc = git.ListBranches
 
 // App represents the terminal UI for GitCherry.
 type App struct {
@@ -25,7 +29,13 @@ type App struct {
 	PreviewModal *tview.Modal
 	HelpModal    *tview.Modal
 
-	helpVisible bool
+		refreshBanner *tview.TextView
+
+		branchStage  int
+		branchSource string
+		branchTarget string
+
+		helpVisible bool
 }
 
 // NewApp constructs a new TUI application.
@@ -46,6 +56,7 @@ func NewApp(runner *git.Runner, cfg *config.Config) *App {
 	app.initialiseViews()
 	app.initialiseLayout()
 	app.bindKeys()
+	app.loadBranches()
 
 	return app
 }
@@ -104,7 +115,13 @@ func (a *App) initialiseViews() {
 	a.BranchList.ShowSecondaryText(false)
 	a.BranchList.SetTitle("Branches")
 	a.BranchList.SetBorder(true)
+	a.BranchList.SetSelectedBackgroundColor(tcell.ColorBlue)
+	a.BranchList.SetSelectedTextColor(tcell.ColorWhite)
+	a.BranchList.SetSelectedFocusOnly(true)
 	a.BranchList.AddItem("(loading branches...)", "", 0, nil)
+	a.BranchList.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		a.handleBranchSelection(mainText)
+	})
 
 	a.CommitList = tview.NewList()
 	a.CommitList.ShowSecondaryText(false)
@@ -128,8 +145,17 @@ func (a *App) initialiseViews() {
 }
 
 func (a *App) initialiseLayout() {
+	left := tview.NewFlex().SetDirection(tview.FlexRow)
+	if !a.config.AutoRefresh {
+		a.refreshBanner = tview.NewTextView().
+			SetText("Press 'r' to refresh remote refs").
+			SetDynamicColors(false)
+		left.AddItem(a.refreshBanner, 1, 0, false)
+	}
+	left.AddItem(a.BranchList, 0, 1, true)
+
 	mainContent := tview.NewFlex().
-		AddItem(a.BranchList, 0, 1, true).
+		AddItem(left, 0, 1, true).
 		AddItem(a.CommitList, 0, 2, false)
 
 	a.pages = tview.NewPages().
@@ -164,4 +190,63 @@ func (a *App) bindKeys() {
 
 		return event
 	})
+}
+
+func (a *App) loadBranches() {
+	branches, err := listBranchesFunc()
+	a.BranchList.Clear()
+	if err != nil {
+		a.BranchList.AddItem(fmt.Sprintf("Error loading branches: %v", err), "", 0, nil)
+		return
+	}
+	if len(branches) == 0 {
+		a.BranchList.AddItem("No local branches found", "", 0, nil)
+		return
+	}
+	for _, branch := range branches {
+		branch = strings.TrimSpace(branch)
+		if branch == "" {
+			continue
+		}
+		a.BranchList.AddItem(branch, "", 0, nil)
+	}
+	a.BranchList.SetCurrentItem(0)
+}
+
+func (a *App) handleBranchSelection(branch string) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return
+	}
+
+	switch a.branchStage {
+	case 0:
+		a.branchSource = branch
+		a.branchTarget = ""
+		a.branchStage = 1
+		a.previewCommitSelectionPrompt()
+	case 1:
+		a.branchTarget = branch
+		a.branchStage = 2
+		a.showCommitListForSource()
+	default:
+		a.branchSource = branch
+		a.branchTarget = ""
+		a.branchStage = 1
+		a.previewCommitSelectionPrompt()
+	}
+}
+
+func (a *App) previewCommitSelectionPrompt() {
+	a.CommitList.Clear()
+	message := fmt.Sprintf("Select target branch (source: %s)", a.branchSource)
+	a.CommitList.AddItem(message, "", 0, nil)
+	a.ui.SetFocus(a.BranchList)
+}
+
+func (a *App) showCommitListForSource() {
+	a.CommitList.Clear()
+	message := fmt.Sprintf("Commits for %s → %s (preview only)", a.branchSource, a.branchTarget)
+	a.CommitList.AddItem(message, "", 0, nil)
+	a.ui.SetFocus(a.CommitList)
 }
