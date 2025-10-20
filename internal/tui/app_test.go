@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,7 +41,9 @@ func TestNewAppInitializes(t *testing.T) {
 	require.NotNil(t, app)
 	require.NotNil(t, app.BranchList)
 	require.NotNil(t, app.CommitList)
-	require.NotNil(t, app.PreviewModal)
+	require.NotNil(t, app.previewFrame)
+	require.NotNil(t, app.previewEditor)
+	require.NotNil(t, app.previewActions)
 	require.NotNil(t, app.HelpModal)
 	require.NotNil(t, app.refreshBanner)
 	require.False(t, app.HelpVisible())
@@ -70,7 +73,8 @@ func TestBranchSelectionFlowAndCommitRange(t *testing.T) {
 	}
 	withStubCommits(t, commits, nil)
 
-	app := NewApp(nil, config.Default())
+	cfg := config.Default()
+	app := NewApp(nil, cfg)
 	require.Equal(t, 2, app.BranchList.GetItemCount())
 	require.Equal(t, 0, app.branchStage)
 
@@ -92,4 +96,38 @@ func TestBranchSelectionFlowAndCommitRange(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "c1", start)
 	require.Equal(t, "c3", end)
+	require.True(t, app.previewVisible)
+	info := app.previewInfo.GetText(false)
+	require.Contains(t, info, "feature")
+	require.Equal(t, len(commits)+1, app.previewTable.GetRowCount())
+	expected := strings.ReplaceAll(cfg.MessageTemplate, "{source}", "main")
+	expected = strings.ReplaceAll(expected, "{target}", "feature")
+	expected = strings.ReplaceAll(expected, "{range}", "c1..c3")
+	require.Equal(t, expected, app.previewEditor.GetText())
+}
+
+func TestPreviewTemplateActions(t *testing.T) {
+	withStubBranches(t, []string{"main", "feature"}, nil)
+	commits := []git.Commit{
+		{Hash: "c1", Message: "First"},
+		{Hash: "c2", Message: "Second"},
+	}
+	withStubCommits(t, commits, nil)
+
+	cfg := config.Default()
+	cfg.MessageTemplate = "Transfer {source}->{target} range {range}"
+	app := NewApp(nil, cfg)
+	app.handleBranchSelection("main")
+	app.handleBranchSelection("feature")
+	app.markCommitStart(0)
+	app.confirmCommitRange(1)
+
+	app.previewEditor.SetText("custom message", true)
+	app.applySuggestedMessage()
+	expected := "Transfer main->feature range c1..c2"
+	require.Equal(t, expected, app.previewEditor.GetText())
+
+	app.previewEditor.SetText("edited", true)
+	app.editPreviewMessage()
+	require.Equal(t, "edited", app.previewEditor.GetText())
 }

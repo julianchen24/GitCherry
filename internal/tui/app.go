@@ -27,10 +27,16 @@ type App struct {
 	pages *tview.Pages
 	mu    sync.RWMutex
 
-	BranchList   *tview.List
-	CommitList   *tview.List
-	PreviewModal *tview.Modal
-	HelpModal    *tview.Modal
+	BranchList *tview.List
+	CommitList *tview.List
+	HelpModal  *tview.Modal
+
+	previewFrame   *tview.Frame
+	previewTable   *tview.Table
+	previewInfo    *tview.TextView
+	previewEditor  *tview.TextArea
+	previewActions *tview.List
+	previewVisible bool
 
 	refreshBanner *tview.TextView
 
@@ -143,19 +149,48 @@ func (a *App) initialiseViews() {
 		a.confirmCommitRange(index)
 	})
 
-	a.PreviewModal = tview.NewModal().
-		SetText("Preview not available yet").
-		AddButtons([]string{"Close"})
-	a.PreviewModal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-		a.pages.HidePage("preview")
-	})
-
 	a.HelpModal = tview.NewModal().
 		SetText("GitCherry Help\n\nq: quit\n?: toggle help").
 		AddButtons([]string{"Close"})
 	a.HelpModal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 		a.ToggleHelp()
 	})
+
+	a.previewTable = tview.NewTable()
+	a.previewTable.SetBorder(true)
+	a.previewTable.SetTitle("Selected Commits")
+	a.previewTable.SetSelectable(false, false)
+	a.previewTable.SetFixed(1, 0)
+
+	a.previewInfo = tview.NewTextView()
+	a.previewInfo.SetDynamicColors(false)
+	a.previewInfo.SetBorder(true)
+	a.previewInfo.SetTitle("Summary")
+
+	a.previewEditor = tview.NewTextArea()
+	a.previewEditor.SetBorder(true)
+	a.previewEditor.SetTitle("Commit Message")
+
+	a.previewActions = tview.NewList().ShowSecondaryText(false)
+	a.previewActions.SetBorder(true)
+	a.previewActions.SetTitle("Actions")
+	a.previewActions.AddItem("[E] Edit message", "", 'e', func() {
+		a.editPreviewMessage()
+	})
+	a.previewActions.AddItem("[A] Use suggested message", "", 'a', func() {
+		a.applySuggestedMessage()
+	})
+
+	body := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(a.previewInfo, 3, 0, false).
+		AddItem(a.previewTable, 0, 3, false).
+		AddItem(a.previewEditor, 0, 4, true).
+		AddItem(a.previewActions, 7, 0, false)
+
+	a.previewFrame = tview.NewFrame(body)
+	a.previewFrame.SetBorder(true)
+	a.previewFrame.SetTitle("Preview")
 }
 
 func (a *App) initialiseLayout() {
@@ -174,7 +209,7 @@ func (a *App) initialiseLayout() {
 
 	a.pages = tview.NewPages().
 		AddPage("main", mainContent, true, true).
-		AddPage("preview", a.PreviewModal, true, false).
+		AddPage("preview", a.previewFrame, true, false).
 		AddPage("help", a.HelpModal, true, false)
 
 	a.ui.SetRoot(a.pages, true)
@@ -202,6 +237,11 @@ func (a *App) bindKeys() {
 					a.markCommitStart(index)
 					return nil
 				}
+			}
+		case tcell.KeyEscape:
+			if a.previewVisible {
+				a.hidePreview()
+				return nil
 			}
 		case tcell.KeyCtrlC:
 			a.Stop()
@@ -329,11 +369,15 @@ func (a *App) confirmCommitRange(index int) {
 	startCommit := a.commits[a.commitStart]
 	endCommit := a.commits[a.commitEnd]
 
-	text := fmt.Sprintf("Planned range:\n%s → %s\nTotal commits: %d",
-		startCommit.Hash, endCommit.Hash, a.commitEnd-a.commitStart+1)
-	a.PreviewModal.SetText(text)
+	a.populatePreviewTable(a.commitStart, a.commitEnd)
+	a.previewInfo.SetText(fmt.Sprintf("Target: %s\n→ Will become 1 new commit", a.branchTarget))
+
+	suggested := a.renderSuggestedMessage(startCommit, endCommit)
+	a.previewEditor.SetText(suggested, true)
+
+	a.previewVisible = true
 	a.pages.ShowPage("preview")
-	a.ui.SetFocus(a.PreviewModal)
+	a.ui.SetFocus(a.previewActions)
 }
 
 // SelectedRange returns the hash bounds for the current selection if available.
@@ -343,4 +387,60 @@ func (a *App) SelectedRange() (string, string, bool) {
 		return "", "", false
 	}
 	return a.commits[a.commitStart].Hash, a.commits[a.commitEnd].Hash, true
+}
+
+func (a *App) populatePreviewTable(start, end int) {
+	a.previewTable.Clear()
+	a.previewTable.SetCell(0, 0, tview.NewTableCell("Hash").SetAttributes(tcell.AttrBold))
+	a.previewTable.SetCell(0, 1, tview.NewTableCell("Author").SetAttributes(tcell.AttrBold))
+	a.previewTable.SetCell(0, 2, tview.NewTableCell("Subject").SetAttributes(tcell.AttrBold))
+
+	row := 1
+	for i := start; i <= end && i < len(a.commits); i++ {
+		commit := a.commits[i]
+		hash := commit.Hash
+		if len(hash) > 7 {
+			hash = hash[:7]
+		}
+		a.previewTable.SetCell(row, 0, tview.NewTableCell(hash))
+		a.previewTable.SetCell(row, 1, tview.NewTableCell(commit.Author))
+		a.previewTable.SetCell(row, 2, tview.NewTableCell(commit.Message))
+		row++
+	}
+}
+
+func (a *App) renderSuggestedMessage(start, end git.Commit) string {
+	if a.config == nil {
+		return ""
+	}
+	rangeSpec := fmt.Sprintf("%s..%s", start.Hash, end.Hash)
+	message := a.config.MessageTemplate
+	replacements := map[string]string{
+		"{source}": a.branchSource,
+		"{target}": a.branchTarget,
+		"{range}":  rangeSpec,
+	}
+	for key, val := range replacements {
+		message = strings.ReplaceAll(message, key, val)
+	}
+	return message
+}
+
+func (a *App) applySuggestedMessage() {
+	if a.commitStart < 0 || a.commitEnd < 0 || a.commitStart >= len(a.commits) || a.commitEnd >= len(a.commits) {
+		return
+	}
+	msg := a.renderSuggestedMessage(a.commits[a.commitStart], a.commits[a.commitEnd])
+	a.previewEditor.SetText(msg, true)
+	a.ui.SetFocus(a.previewEditor)
+}
+
+func (a *App) editPreviewMessage() {
+	a.ui.SetFocus(a.previewEditor)
+}
+
+func (a *App) hidePreview() {
+	a.previewVisible = false
+	a.pages.HidePage("preview")
+	a.ui.SetFocus(a.CommitList)
 }
