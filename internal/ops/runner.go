@@ -10,13 +10,13 @@ import (
 
 // Runner wires together the configuration, audit trail, and user interface.
 type Runner struct {
-	app   tui.App
+	app   *tui.App
 	cfg   *config.Config
 	audit *logs.AuditLog
 }
 
 // NewRunner constructs a Runner using the provided collaborators.
-func NewRunner(app tui.App, cfg *config.Config, audit *logs.AuditLog) *Runner {
+func NewRunner(app *tui.App, cfg *config.Config, audit *logs.AuditLog) *Runner {
 	if cfg == nil {
 		cfg = config.Default()
 	}
