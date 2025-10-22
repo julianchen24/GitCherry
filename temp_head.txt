@@ -1,0 +1,220 @@
+package tui
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
+
+	"github.com/julianchen24/gitcherry/internal/config"
+	"github.com/julianchen24/gitcherry/internal/git"
+	"github.com/julianchen24/gitcherry/internal/logs"
+	"github.com/julianchen24/gitcherry/internal/ops/restore"
+)
+
+var (
+	listBranchesFunc   = git.ListBranches
+	commitsBetweenFunc = git.CommitsBetween
+)
+
+// App represents the terminal UI for GitCherry.
+type App struct {
+	runner *git.Runner
+	config *config.Config
+	audit  *logs.AuditLog
+	fetchFn func() error
+
+	ui    *tview.Application
+	pages *tview.Pages
+	mu    sync.RWMutex
+
+	BranchList *tview.List
+	CommitList *tview.List
+	HelpModal  *tview.Modal
+
+	previewFrame   *tview.Frame
+	previewTable   *tview.Table
+	previewInfo    *tview.TextView
+	previewEditor  *tview.TextArea
+	previewActions *tview.List
+	previewVisible bool
+
+	duplicateModal   *tview.Modal
+	duplicateVisible bool
+	duplicates       []git.Commit
+	duplicateFn      func(target string, commits []git.Commit) ([]git.Commit, error)
+
+	restoreForm        *tview.Form
+	restoreVisible     bool
+	restoreCommitIndex int
+
+	refreshBanner *tview.TextView
+
+	branchStage  int
+	branchSource string
+	branchTarget string
+
+	commits     []git.Commit
+	commitStart int
+	commitEnd   int
+
+	helpVisible bool
+}
+
+// NewApp constructs a new TUI application.
+func NewApp(runner *git.Runner, cfg *config.Config, audit *logs.AuditLog) *App {
+	if runner == nil {
+		runner = &git.Runner{}
+	}
+	if cfg == nil {
+		cfg = config.Default()
+	}
+
+	app := &App{
+		runner:             runner,
+		config:             cfg,
+		audit:              audit,
+		ui:                 tview.NewApplication(),
+		commitStart:        -1,
+		commitEnd:          -1,
+		restoreCommitIndex: -1,
+	}
+
+	app.initialiseViews()
+	app.initialiseLayout()
+	app.bindKeys()
+	app.loadBranches()
+
+	return app
+}
+
+// Run launches the UI and blocks until completion or context cancellation.
+func (a *App) Run(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- a.ui.Run()
+	}()
+
+	select {
+	case <-ctx.Done():
+		a.Stop()
+		return ctx.Err()
+	case err := <-errCh:
+		return err
+	}
+}
+
+// Stop halts the underlying tview application.
+func (a *App) Stop() {
+	a.ui.Stop()
+}
+
+// ToggleHelp shows or hides the help modal.
+func (a *App) ToggleHelp() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.helpVisible {
+		a.pages.HidePage("help")
+		a.helpVisible = false
+		a.ui.SetFocus(a.BranchList)
+		return
+	}
+
+	a.pages.ShowPage("help")
+	a.helpVisible = true
+	a.ui.SetFocus(a.HelpModal)
+}
+
+// HelpVisible reports whether the help modal is currently shown.
+func (a *App) HelpVisible() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.helpVisible
+}
+
+func (a *App) initialiseViews() {
+	a.BranchList = tview.NewList()
+	a.BranchList.ShowSecondaryText(false)
+	a.BranchList.SetTitle("Branches")
+	a.BranchList.SetBorder(true)
+	a.BranchList.SetSelectedBackgroundColor(tcell.ColorBlue)
+	a.BranchList.SetSelectedTextColor(tcell.ColorWhite)
+	a.BranchList.SetSelectedFocusOnly(true)
+	a.BranchList.AddItem("(loading branches...)", "", 0, nil)
+	a.BranchList.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		a.handleBranchSelection(mainText)
+	})
+
+	a.CommitList = tview.NewList()
+	a.CommitList.ShowSecondaryText(true)
+	a.CommitList.SetTitle("Commits")
+	a.CommitList.SetBorder(true)
+	a.CommitList.SetSelectedBackgroundColor(tcell.ColorGreen)
+	a.CommitList.SetSelectedTextColor(tcell.ColorBlack)
+	a.CommitList.AddItem("(select a branch)", "", 0, nil)
+	a.CommitList.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		a.confirmCommitRange(index)
+	})
+
+	a.HelpModal = tview.NewModal().
+		SetText("GitCherry Help\n\nq: quit\n?: toggle help").
+		AddButtons([]string{"Close"})
+	a.HelpModal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+		a.ToggleHelp()
+	})
+
+	a.restoreForm = tview.NewForm().
+		AddInputField("Branch name", "", 40, nil, nil).
+		AddButton("Create", func() {
+			a.submitRestore()
+		}).
+		AddButton("Cancel", func() {
+			a.hideRestore()
+		})
+	a.restoreForm.SetBorder(true)
+	a.restoreForm.SetTitle("Restore Branch")
+
+	a.previewTable = tview.NewTable()
+	a.previewTable.SetBorder(true)
+	a.previewTable.SetTitle("Selected Commits")
+	a.previewTable.SetSelectable(false, false)
+	a.previewTable.SetFixed(1, 0)
+
+	a.previewInfo = tview.NewTextView()
+	a.previewInfo.SetDynamicColors(false)
+	a.previewInfo.SetBorder(true)
+	a.previewInfo.SetTitle("Summary")
+
+	a.previewEditor = tview.NewTextArea()
+	a.previewEditor.SetBorder(true)
+	a.previewEditor.SetTitle("Commit Message")
+
+	a.previewActions = tview.NewList().ShowSecondaryText(false)
+	a.previewActions.SetBorder(true)
+	a.previewActions.SetTitle("Actions")
+	a.previewActions.AddItem("[E] Edit message", "", 'e', func() {
+		a.editPreviewMessage()
+	})
+	a.previewActions.AddItem("[A] Use suggested message", "", 'a', func() {
+		a.applySuggestedMessage()
+	})
+
+	body := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(a.previewInfo, 3, 0, false).
+		AddItem(a.previewTable, 0, 3, false).
+		AddItem(a.previewEditor, 0, 4, true).
+		AddItem(a.previewActions, 7, 0, false)
+
+	a.previewFrame = tview.NewFrame(body)
+	a.previewFrame.SetBorder(true)
+	a.previewFrame.SetTitle("Preview")
+}

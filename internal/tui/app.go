@@ -13,6 +13,7 @@ import (
 	"github.com/julianchen24/gitcherry/internal/git"
 	"github.com/julianchen24/gitcherry/internal/logs"
 	"github.com/julianchen24/gitcherry/internal/ops/restore"
+	"github.com/julianchen24/gitcherry/internal/ops/transfer"
 )
 
 var (
@@ -22,9 +23,10 @@ var (
 
 // App represents the terminal UI for GitCherry.
 type App struct {
-	runner *git.Runner
-	config *config.Config
-	audit  *logs.AuditLog
+	runner  *git.Runner
+	config  *config.Config
+	audit   *logs.AuditLog
+	fetchFn func() error
 
 	ui    *tview.Application
 	pages *tview.Pages
@@ -40,6 +42,11 @@ type App struct {
 	previewEditor  *tview.TextArea
 	previewActions *tview.List
 	previewVisible bool
+
+	duplicateModal   *tview.Modal
+	duplicateVisible bool
+	duplicates       []git.Commit
+	duplicateFn      func(target string, commits []git.Commit) ([]git.Commit, error)
 
 	restoreForm        *tview.Form
 	restoreVisible     bool
@@ -75,6 +82,11 @@ func NewApp(runner *git.Runner, cfg *config.Config, audit *logs.AuditLog) *App {
 		commitStart:        -1,
 		commitEnd:          -1,
 		restoreCommitIndex: -1,
+	}
+
+	app.fetchFn = app.defaultFetch
+	app.duplicateFn = func(target string, commits []git.Commit) ([]git.Commit, error) {
+		return transfer.DetectDuplicates(app.runner, target, commits)
 	}
 
 	app.initialiseViews()
@@ -201,6 +213,18 @@ func (a *App) initialiseViews() {
 		a.applySuggestedMessage()
 	})
 
+	a.duplicateModal = tview.NewModal().
+		AddButtons([]string{"Yes", "No"})
+	a.duplicateModal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+		switch buttonLabel {
+		case "Yes":
+			a.hideDuplicatePrompt()
+			a.showPreview()
+		case "No":
+			a.hideDuplicatePrompt()
+		}
+	})
+
 	body := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(a.previewInfo, 3, 0, false).
@@ -230,6 +254,7 @@ func (a *App) initialiseLayout() {
 	a.pages = tview.NewPages().
 		AddPage("main", mainContent, true, true).
 		AddPage("preview", a.previewFrame, true, false).
+		AddPage("duplicates", a.duplicateModal, true, false).
 		AddPage("help", a.HelpModal, true, false).
 		AddPage("restore", a.restoreForm, true, false)
 
@@ -258,6 +283,12 @@ func (a *App) bindKeys() {
 					a.markCommitStart(index)
 					return nil
 				}
+			case 'r', 'R':
+				a.loadBranchesWithFetch(true)
+				if a.branchStage == 2 {
+					a.commitTargetReset()
+				}
+				return nil
 			case 'b', 'B':
 				if a.ui.GetFocus() == a.CommitList {
 					index := a.CommitList.GetCurrentItem()
@@ -268,6 +299,10 @@ func (a *App) bindKeys() {
 		case tcell.KeyEscape:
 			if a.previewVisible {
 				a.hidePreview()
+				return nil
+			}
+			if a.duplicateVisible {
+				a.hideDuplicatePrompt()
 				return nil
 			}
 			if a.restoreVisible {
@@ -284,6 +319,20 @@ func (a *App) bindKeys() {
 }
 
 func (a *App) loadBranches() {
+	a.loadBranchesWithFetch(a.config != nil && a.config.AutoRefresh)
+}
+
+func (a *App) loadBranchesWithFetch(doFetch bool) {
+	if doFetch && a.fetchFn != nil {
+		if err := a.fetchFn(); err != nil {
+			if a.refreshBanner != nil {
+				a.refreshBanner.SetText(fmt.Sprintf("Fetch failed: %v", err))
+			}
+		} else if a.refreshBanner != nil {
+			a.refreshBanner.SetText("Remote refs updated")
+		}
+	}
+
 	branches, err := listBranchesFunc()
 	a.BranchList.Clear()
 	if err != nil {
@@ -397,6 +446,35 @@ func (a *App) confirmCommitRange(index int) {
 		a.commitEnd = index
 	}
 
+	if a.branchTarget != "" && a.duplicateFn != nil {
+		duplicates, err := a.detectDuplicates()
+		if err != nil {
+			if a.refreshBanner != nil {
+				a.refreshBanner.SetText(fmt.Sprintf("Duplicate check failed: %v", err))
+			}
+		} else if len(duplicates) > 0 {
+			a.duplicates = duplicates
+			a.showDuplicatePrompt()
+			return
+		}
+	}
+
+	a.showPreview()
+}
+
+// SelectedRange returns the hash bounds for the current selection if available.
+func (a *App) SelectedRange() (string, string, bool) {
+	if a.commitStart < 0 || a.commitEnd < 0 ||
+		a.commitStart >= len(a.commits) || a.commitEnd >= len(a.commits) {
+		return "", "", false
+	}
+	return a.commits[a.commitStart].Hash, a.commits[a.commitEnd].Hash, true
+}
+
+func (a *App) showPreview() {
+	if a.commitStart < 0 || a.commitEnd < 0 || a.commitEnd >= len(a.commits) {
+		return
+	}
 	startCommit := a.commits[a.commitStart]
 	endCommit := a.commits[a.commitEnd]
 
@@ -411,13 +489,26 @@ func (a *App) confirmCommitRange(index int) {
 	a.ui.SetFocus(a.previewActions)
 }
 
-// SelectedRange returns the hash bounds for the current selection if available.
-func (a *App) SelectedRange() (string, string, bool) {
+func (a *App) selectedCommits() []git.Commit {
 	if a.commitStart < 0 || a.commitEnd < 0 ||
 		a.commitStart >= len(a.commits) || a.commitEnd >= len(a.commits) {
-		return "", "", false
+		return nil
 	}
-	return a.commits[a.commitStart].Hash, a.commits[a.commitEnd].Hash, true
+	size := a.commitEnd - a.commitStart + 1
+	out := make([]git.Commit, size)
+	copy(out, a.commits[a.commitStart:a.commitEnd+1])
+	return out
+}
+
+func (a *App) detectDuplicates() ([]git.Commit, error) {
+	if a.duplicateFn == nil || a.branchTarget == "" {
+		return nil, nil
+	}
+	commits := a.selectedCommits()
+	if len(commits) == 0 {
+		return nil, nil
+	}
+	return a.duplicateFn(a.branchTarget, commits)
 }
 
 func (a *App) populatePreviewTable(start, end int) {
@@ -474,6 +565,40 @@ func (a *App) hidePreview() {
 	a.previewVisible = false
 	a.pages.HidePage("preview")
 	a.ui.SetFocus(a.CommitList)
+}
+
+func (a *App) showDuplicatePrompt() {
+	example := ""
+	if len(a.duplicates) > 0 {
+		hash := a.duplicates[0].Hash
+		if len(hash) > 6 {
+			hash = hash[:6]
+		}
+		example = hash
+	}
+	message := fmt.Sprintf("Detected %d duplicate patches already on target (e.g., %s). Apply anyway?", len(a.duplicates), example)
+	a.duplicateModal.SetText(message)
+	a.duplicateVisible = true
+	a.pages.ShowPage("duplicates")
+	a.ui.SetFocus(a.duplicateModal)
+}
+
+func (a *App) hideDuplicatePrompt() {
+	a.duplicateVisible = false
+	a.pages.HidePage("duplicates")
+	a.duplicates = nil
+	a.ui.SetFocus(a.CommitList)
+}
+
+func (a *App) defaultFetch() error {
+	if a.runner != nil {
+		_, stderr, err := a.runner.Run("fetch", "--prune", "--tags")
+		if err != nil {
+			return fmt.Errorf("git fetch failed: %v (%s)", err, strings.TrimSpace(stderr))
+		}
+		return nil
+	}
+	return git.Fetch(true, true)
 }
 
 func (a *App) openRestoreModal(index int) {
@@ -533,5 +658,8 @@ func (a *App) executeRestore(branchName string) {
 	}
 	a.restoreForm.SetTitle("Restore Branch (created)")
 	a.hideRestore()
-	a.loadBranches()
+	a.loadBranchesWithFetch(false)
+	if a.branchStage == 2 {
+		a.commitTargetReset()
+	}
 }

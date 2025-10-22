@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/julianchen24/gitcherry/internal/config"
 	"github.com/julianchen24/gitcherry/internal/git"
@@ -29,10 +30,11 @@ func main() {
 
 func newRootCommand() *cobra.Command {
 	var (
-		flagRefresh   bool
-		flagApply     bool
-		flagNoPreview bool
-		flagTUI       bool
+		flagRefresh     bool
+		flagApply       bool
+		flagNoPreview   bool
+		flagTUI         bool
+		flagOnDuplicate string
 	)
 
 	cmd := &cobra.Command{
@@ -52,6 +54,24 @@ func newRootCommand() *cobra.Command {
 				merged.AutoRefresh = true
 			}
 
+			effectiveDuplicate := strings.TrimSpace(flagOnDuplicate)
+			effectiveDuplicate = strings.ToLower(effectiveDuplicate)
+			if effectiveDuplicate == "" {
+				effectiveDuplicate = strings.ToLower(strings.TrimSpace(merged.OnDuplicate))
+				if effectiveDuplicate == "" {
+					effectiveDuplicate = "ask"
+				}
+				if !cmd.Flags().Changed("on-duplicate") && !isInteractive(os.Stdin) {
+					effectiveDuplicate = "skip"
+				}
+			}
+			switch effectiveDuplicate {
+			case "ask", "skip", "apply":
+			default:
+				return fmt.Errorf("invalid value for --on-duplicate: %s", effectiveDuplicate)
+			}
+			merged.OnDuplicate = effectiveDuplicate
+
 			clean, err := git.IsClean()
 			if err != nil {
 				return err
@@ -60,11 +80,18 @@ func newRootCommand() *cobra.Command {
 				return fmt.Errorf(dirtyWorktreeMessage)
 			}
 
+			if flagRefresh {
+				if err := git.Fetch(true, true); err != nil {
+					return err
+				}
+			}
+
 			ctx := cmd.Context()
 			ctx = context.WithValue(ctx, ctxConfigKey{}, &merged)
 			ctx = context.WithValue(ctx, ctxApplyKey{}, flagApply)
 			ctx = context.WithValue(ctx, ctxRefreshKey{}, flagRefresh)
 			ctx = context.WithValue(ctx, ctxTUIKey{}, flagTUI)
+			ctx = context.WithValue(ctx, ctxDuplicateKey{}, effectiveDuplicate)
 			cmd.SetContext(ctx)
 			return nil
 		},
@@ -96,6 +123,7 @@ func newRootCommand() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&flagApply, "apply", false, "Execute operations instead of dry-run")
 	cmd.PersistentFlags().BoolVar(&flagNoPreview, "no-preview", false, "Disable preview before applying changes")
 	cmd.PersistentFlags().BoolVar(&flagTUI, "tui", false, "Launch the interactive TUI")
+	cmd.PersistentFlags().StringVar(&flagOnDuplicate, "on-duplicate", "", "Duplicate handling strategy: ask|skip|apply")
 
 	cmd.AddCommand(newTransferCmd())
 	cmd.AddCommand(newRevertCmd())
@@ -113,6 +141,7 @@ type ctxConfigKey struct{}
 type ctxApplyKey struct{}
 type ctxRefreshKey struct{}
 type ctxTUIKey struct{}
+type ctxDuplicateKey struct{}
 
 func configFromContext(ctx context.Context) *config.Config {
 	if ctx == nil {
@@ -199,6 +228,23 @@ func isTUI(ctx context.Context) bool {
 		return tui
 	}
 	return false
+}
+
+func duplicateMode(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if mode, ok := ctx.Value(ctxDuplicateKey{}).(string); ok {
+		return mode
+	}
+	return ""
+}
+
+func isInteractive(file *os.File) bool {
+	if file == nil {
+		return false
+	}
+	return term.IsTerminal(int(file.Fd()))
 }
 
 func printDryRunNotice(subject string) {

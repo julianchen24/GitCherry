@@ -61,10 +61,13 @@ func IsClean() (bool, error) {
 }
 
 // Fetch updates remote tracking branches. When prune is true, prunes removed refs.
-func Fetch(prune bool) error {
+func Fetch(prune, includeTags bool) error {
 	args := []string{"fetch"}
 	if prune {
 		args = append(args, "--prune")
+	}
+	if includeTags {
+		args = append(args, "--tags")
 	}
 	_, stderr, err := runGit(args...)
 	if err != nil {
@@ -159,17 +162,38 @@ func CommitsBetween(base, head string) ([]Commit, error) {
 
 // PatchID returns the stable patch identifier for a commit.
 func PatchID(hash string) (string, error) {
+	return patchID(hash, nil)
+}
+
+// PatchID computes the stable patch identifier using the runner's working directory.
+func (r *Runner) PatchID(hash string) (string, error) {
+	return patchID(hash, r)
+}
+
+func patchID(hash string, runner *Runner) (string, error) {
 	hash = strings.TrimSpace(hash)
 	if hash == "" {
 		return "", errors.New("hash is required")
 	}
 
-	showOut, showErr, err := runGit("show", hash, "--pretty=format:", "--patch")
+	var (
+		showOut string
+		showErr string
+		err     error
+	)
+	if runner != nil {
+		showOut, showErr, err = runner.Run("show", hash, "--pretty=format:", "--patch")
+	} else {
+		showOut, showErr, err = runGit("show", hash, "--pretty=format:", "--patch")
+	}
 	if err != nil {
 		return "", commandError(err, showErr)
 	}
 
 	cmd := exec.Command("git", "patch-id", "--stable")
+	if runner != nil && runner.Dir != "" {
+		cmd.Dir = runner.Dir
+	}
 	cmd.Env = withNoPrompt(os.Environ())
 	cmd.Stdin = strings.NewReader(showOut)
 

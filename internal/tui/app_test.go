@@ -39,6 +39,8 @@ func TestNewAppInitializes(t *testing.T) {
 	cfg.AutoRefresh = false
 
 	app := NewApp(nil, cfg, logs.NewAuditLog())
+	app.fetchFn = func() error { return nil }
+	app.duplicateFn = func(string, []git.Commit) ([]git.Commit, error) { return nil, nil }
 	require.NotNil(t, app)
 	require.NotNil(t, app.BranchList)
 	require.NotNil(t, app.CommitList)
@@ -56,6 +58,8 @@ func TestToggleHelp(t *testing.T) {
 	withStubCommits(t, nil, nil)
 
 	app := NewApp(nil, config.Default(), logs.NewAuditLog())
+	app.fetchFn = func() error { return nil }
+	app.duplicateFn = func(string, []git.Commit) ([]git.Commit, error) { return nil, nil }
 	require.False(t, app.HelpVisible())
 
 	app.ToggleHelp()
@@ -76,6 +80,8 @@ func TestBranchSelectionFlowAndCommitRange(t *testing.T) {
 
 	cfg := config.Default()
 	app := NewApp(nil, cfg, logs.NewAuditLog())
+	app.fetchFn = func() error { return nil }
+	app.duplicateFn = func(string, []git.Commit) ([]git.Commit, error) { return nil, nil }
 	require.Equal(t, 2, app.BranchList.GetItemCount())
 	require.Equal(t, 0, app.branchStage)
 
@@ -118,6 +124,8 @@ func TestPreviewTemplateActions(t *testing.T) {
 	cfg := config.Default()
 	cfg.MessageTemplate = "Transfer {source}->{target} range {range}"
 	app := NewApp(nil, cfg, logs.NewAuditLog())
+	app.fetchFn = func() error { return nil }
+	app.duplicateFn = func(string, []git.Commit) ([]git.Commit, error) { return nil, nil }
 	app.handleBranchSelection("main")
 	app.handleBranchSelection("feature")
 	app.markCommitStart(0)
@@ -131,4 +139,41 @@ func TestPreviewTemplateActions(t *testing.T) {
 	app.previewEditor.SetText("edited", true)
 	app.editPreviewMessage()
 	require.Equal(t, "edited", app.previewEditor.GetText())
+}
+
+func TestManualRefreshInvokesFetch(t *testing.T) {
+	withStubBranches(t, []string{"main"}, nil)
+	withStubCommits(t, nil, nil)
+
+	app := NewApp(nil, config.Default(), logs.NewAuditLog())
+	count := 0
+	app.fetchFn = func() error {
+		count++
+		return nil
+	}
+	app.loadBranchesWithFetch(true)
+	require.Equal(t, 1, count)
+}
+
+func TestDuplicatePromptShown(t *testing.T) {
+	withStubBranches(t, []string{"main", "feature"}, nil)
+	commits := []git.Commit{
+		{Hash: "c1", Message: "First"},
+		{Hash: "c2", Message: "Second"},
+	}
+	withStubCommits(t, commits, nil)
+
+	app := NewApp(nil, config.Default(), logs.NewAuditLog())
+	app.fetchFn = func() error { return nil }
+	app.duplicateFn = func(target string, selection []git.Commit) ([]git.Commit, error) {
+		return selection[:1], nil
+	}
+
+	app.handleBranchSelection("main")
+	app.handleBranchSelection("feature")
+	app.markCommitStart(0)
+	app.confirmCommitRange(1)
+	require.True(t, app.duplicateVisible)
+	require.False(t, app.previewVisible)
+	app.hideDuplicatePrompt()
 }
