@@ -81,7 +81,7 @@ func newRootCommand() *cobra.Command {
 			audit.Record(logs.Entry{Summary: "session started"})
 
 			gitRunner := &git.Runner{}
-			app := tui.NewApp(gitRunner, cfg)
+			app := tui.NewApp(gitRunner, cfg, audit)
 			runner := ops.NewRunner(app, cfg, audit)
 
 			if !isApply(ctx) {

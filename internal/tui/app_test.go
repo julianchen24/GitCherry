@@ -8,6 +8,7 @@ import (
 
 	"github.com/julianchen24/gitcherry/internal/config"
 	"github.com/julianchen24/gitcherry/internal/git"
+	"github.com/julianchen24/gitcherry/internal/logs"
 )
 
 func withStubBranches(t *testing.T, branches []string, err error) {
@@ -37,7 +38,7 @@ func TestNewAppInitializes(t *testing.T) {
 	cfg := config.Default()
 	cfg.AutoRefresh = false
 
-	app := NewApp(nil, cfg)
+	app := NewApp(nil, cfg, logs.NewAuditLog())
 	require.NotNil(t, app)
 	require.NotNil(t, app.BranchList)
 	require.NotNil(t, app.CommitList)
@@ -54,7 +55,7 @@ func TestToggleHelp(t *testing.T) {
 	withStubBranches(t, []string{"main"}, nil)
 	withStubCommits(t, nil, nil)
 
-	app := NewApp(nil, config.Default())
+	app := NewApp(nil, config.Default(), logs.NewAuditLog())
 	require.False(t, app.HelpVisible())
 
 	app.ToggleHelp()
@@ -74,7 +75,7 @@ func TestBranchSelectionFlowAndCommitRange(t *testing.T) {
 	withStubCommits(t, commits, nil)
 
 	cfg := config.Default()
-	app := NewApp(nil, cfg)
+	app := NewApp(nil, cfg, logs.NewAuditLog())
 	require.Equal(t, 2, app.BranchList.GetItemCount())
 	require.Equal(t, 0, app.branchStage)
 
@@ -116,7 +117,7 @@ func TestPreviewTemplateActions(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.MessageTemplate = "Transfer {source}->{target} range {range}"
-	app := NewApp(nil, cfg)
+	app := NewApp(nil, cfg, logs.NewAuditLog())
 	app.handleBranchSelection("main")
 	app.handleBranchSelection("feature")
 	app.markCommitStart(0)

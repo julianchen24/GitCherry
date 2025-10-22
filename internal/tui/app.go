@@ -11,6 +11,8 @@ import (
 
 	"github.com/julianchen24/gitcherry/internal/config"
 	"github.com/julianchen24/gitcherry/internal/git"
+	"github.com/julianchen24/gitcherry/internal/logs"
+	"github.com/julianchen24/gitcherry/internal/ops/restore"
 )
 
 var (
@@ -22,6 +24,7 @@ var (
 type App struct {
 	runner *git.Runner
 	config *config.Config
+	audit  *logs.AuditLog
 
 	ui    *tview.Application
 	pages *tview.Pages
@@ -38,6 +41,10 @@ type App struct {
 	previewActions *tview.List
 	previewVisible bool
 
+	restoreForm        *tview.Form
+	restoreVisible     bool
+	restoreCommitIndex int
+
 	refreshBanner *tview.TextView
 
 	branchStage  int
@@ -52,7 +59,7 @@ type App struct {
 }
 
 // NewApp constructs a new TUI application.
-func NewApp(runner *git.Runner, cfg *config.Config) *App {
+func NewApp(runner *git.Runner, cfg *config.Config, audit *logs.AuditLog) *App {
 	if runner == nil {
 		runner = &git.Runner{}
 	}
@@ -61,11 +68,13 @@ func NewApp(runner *git.Runner, cfg *config.Config) *App {
 	}
 
 	app := &App{
-		runner:      runner,
-		config:      cfg,
-		ui:          tview.NewApplication(),
-		commitStart: -1,
-		commitEnd:   -1,
+		runner:             runner,
+		config:             cfg,
+		audit:              audit,
+		ui:                 tview.NewApplication(),
+		commitStart:        -1,
+		commitEnd:          -1,
+		restoreCommitIndex: -1,
 	}
 
 	app.initialiseViews()
@@ -156,6 +165,17 @@ func (a *App) initialiseViews() {
 		a.ToggleHelp()
 	})
 
+	a.restoreForm = tview.NewForm().
+		AddInputField("Branch name", "", 40, nil, nil).
+		AddButton("Create", func() {
+			a.submitRestore()
+		}).
+		AddButton("Cancel", func() {
+			a.hideRestore()
+		})
+	a.restoreForm.SetBorder(true)
+	a.restoreForm.SetTitle("Restore Branch")
+
 	a.previewTable = tview.NewTable()
 	a.previewTable.SetBorder(true)
 	a.previewTable.SetTitle("Selected Commits")
@@ -210,7 +230,8 @@ func (a *App) initialiseLayout() {
 	a.pages = tview.NewPages().
 		AddPage("main", mainContent, true, true).
 		AddPage("preview", a.previewFrame, true, false).
-		AddPage("help", a.HelpModal, true, false)
+		AddPage("help", a.HelpModal, true, false).
+		AddPage("restore", a.restoreForm, true, false)
 
 	a.ui.SetRoot(a.pages, true)
 	a.ui.SetFocus(a.BranchList)
@@ -237,10 +258,20 @@ func (a *App) bindKeys() {
 					a.markCommitStart(index)
 					return nil
 				}
+			case 'b', 'B':
+				if a.ui.GetFocus() == a.CommitList {
+					index := a.CommitList.GetCurrentItem()
+					a.openRestoreModal(index)
+					return nil
+				}
 			}
 		case tcell.KeyEscape:
 			if a.previewVisible {
 				a.hidePreview()
+				return nil
+			}
+			if a.restoreVisible {
+				a.hideRestore()
 				return nil
 			}
 		case tcell.KeyCtrlC:
@@ -443,4 +474,64 @@ func (a *App) hidePreview() {
 	a.previewVisible = false
 	a.pages.HidePage("preview")
 	a.ui.SetFocus(a.CommitList)
+}
+
+func (a *App) openRestoreModal(index int) {
+	if index < 0 || index >= len(a.commits) {
+		return
+	}
+	a.restoreCommitIndex = index
+	defaultName := fmt.Sprintf("%s-backup", a.branchSource)
+	if input := a.restoreInput(); input != nil {
+		input.SetText(defaultName)
+	}
+	a.restoreForm.SetTitle("Restore Branch")
+	a.restoreVisible = true
+	a.pages.ShowPage("restore")
+	a.ui.SetFocus(a.restoreForm)
+}
+
+func (a *App) submitRestore() {
+	input := a.restoreInput()
+	if input == nil {
+		return
+	}
+	value := strings.TrimSpace(input.GetText())
+	if value == "" {
+		a.restoreForm.SetTitle("Restore Branch (name required)")
+		return
+	}
+	a.executeRestore(value)
+}
+
+func (a *App) hideRestore() {
+	a.restoreVisible = false
+	a.pages.HidePage("restore")
+	a.restoreForm.SetTitle("Restore Branch")
+	a.ui.SetFocus(a.CommitList)
+}
+
+func (a *App) restoreInput() *tview.InputField {
+	if a.restoreForm == nil || a.restoreForm.GetFormItemCount() == 0 {
+		return nil
+	}
+	if input, ok := a.restoreForm.GetFormItem(0).(*tview.InputField); ok {
+		return input
+	}
+	return nil
+}
+
+func (a *App) executeRestore(branchName string) {
+	if a.restoreCommitIndex < 0 || a.restoreCommitIndex >= len(a.commits) {
+		a.restoreForm.SetTitle("Restore Branch (select a commit)")
+		return
+	}
+	commit := a.commits[a.restoreCommitIndex].Hash
+	if err := restore.Execute(context.Background(), a.runner, branchName, commit, a.audit); err != nil {
+		a.restoreForm.SetTitle(fmt.Sprintf("Restore Branch (error: %v)", err))
+		return
+	}
+	a.restoreForm.SetTitle("Restore Branch (created)")
+	a.hideRestore()
+	a.loadBranches()
 }
