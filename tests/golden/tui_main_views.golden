@@ -1,0 +1,22 @@
+Branches:
+> main
+  feature
+  bugfix
+
+Commits:
+> Fix lint warnings | c1ffee0
+  Improve logging | deadbeef
+  Add telemetry hooks | faceb00c
+
+Preview Info:
+Target: feature
+→ Will become 1 new commit
+
+Preview Table:
+Hash | Author | Subject
+c1ffee0 | Alice | Fix lint warnings
+deadbee | Bob | Improve logging
+
+Preview Message:
+[Transfer] Moved commits from main → feature
+Range: c1ffee0..deadbeef

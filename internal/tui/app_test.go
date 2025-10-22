@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/rivo/tview"
 	"github.com/stretchr/testify/require"
 
 	"github.com/julianchen24/gitcherry/internal/config"
@@ -206,4 +209,102 @@ func TestDetectColorSupportDefaultsToColor(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	t.Setenv("TERM", "xterm-256color")
 	require.True(t, detectColorSupport())
+}
+
+func TestAppSnapshots(t *testing.T) {
+	withStubBranches(t, []string{"main", "feature", "bugfix"}, nil)
+	commits := []git.Commit{
+		{Hash: "c1ffee0", Author: "Alice", Message: "Fix lint warnings"},
+		{Hash: "deadbeef", Author: "Bob", Message: "Improve logging"},
+		{Hash: "faceb00c", Author: "Carol", Message: "Add telemetry hooks"},
+	}
+	withStubCommits(t, commits, nil)
+	stubColorSupport(t, false)
+
+	app := NewApp(nil, config.Default(), logs.NewAuditLog())
+	app.fetchFn = func() error { return nil }
+	app.duplicateFn = func(string, []git.Commit) ([]git.Commit, error) { return nil, nil }
+
+	app.handleBranchSelection("main")
+	app.handleBranchSelection("feature")
+	app.markCommitStart(0)
+	app.confirmCommitRange(1)
+
+	snapshot := snapshotAppViews(t, app)
+	assertGolden(t, "tui_main_views.golden", snapshot)
+}
+
+func snapshotAppViews(t *testing.T, app *App) string {
+	var sb strings.Builder
+	sb.WriteString("Branches:\n")
+	sb.WriteString(renderList(app.BranchList))
+	sb.WriteString("\nCommits:\n")
+	sb.WriteString(renderList(app.CommitList))
+	sb.WriteString("\nPreview Info:\n")
+	info := app.previewInfo.GetText(false)
+	sb.WriteString(info)
+	sb.WriteString("\n\nPreview Table:\n")
+	sb.WriteString(renderTable(app.previewTable))
+	sb.WriteString("\nPreview Message:\n")
+	sb.WriteString(app.previewEditor.GetText())
+	return sb.String()
+}
+
+func renderList(list *tview.List) string {
+	var sb strings.Builder
+	current := list.GetCurrentItem()
+	for i := 0; i < list.GetItemCount(); i++ {
+		main, secondary := list.GetItemText(i)
+		prefix := " "
+		if i == current {
+			prefix = ">"
+		}
+		sb.WriteString(prefix)
+		sb.WriteString(" ")
+		sb.WriteString(main)
+		if secondary != "" {
+			sb.WriteString(" | ")
+			sb.WriteString(secondary)
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+func renderTable(table *tview.Table) string {
+	var sb strings.Builder
+	rows := table.GetRowCount()
+	cols := table.GetColumnCount()
+	for r := 0; r < rows; r++ {
+		for c := 0; c < cols; c++ {
+			cell := table.GetCell(r, c)
+			if cell == nil {
+				continue
+			}
+			if c > 0 {
+				sb.WriteString(" | ")
+			}
+			sb.WriteString(cell.Text)
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+func assertGolden(t *testing.T, name, actual string) {
+	t.Helper()
+	path := filepath.Join("..", "..", "tests", "golden", name)
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(actual), 0o644); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	require.Equal(t, string(data), actual)
 }
