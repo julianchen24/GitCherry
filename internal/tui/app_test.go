@@ -11,6 +11,12 @@ import (
 	"github.com/julianchen24/gitcherry/internal/logs"
 )
 
+func stubColorSupport(t *testing.T, enabled bool) {
+	original := colorSupportFn
+	colorSupportFn = func() bool { return enabled }
+	t.Cleanup(func() { colorSupportFn = original })
+}
+
 func withStubBranches(t *testing.T, branches []string, err error) {
 	original := listBranchesFunc
 	listBranchesFunc = func() ([]string, error) {
@@ -38,6 +44,7 @@ func TestNewAppInitializes(t *testing.T) {
 	cfg := config.Default()
 	cfg.AutoRefresh = false
 
+	stubColorSupport(t, true)
 	app := NewApp(nil, cfg, logs.NewAuditLog())
 	app.fetchFn = func() error { return nil }
 	app.duplicateFn = func(string, []git.Commit) ([]git.Commit, error) { return nil, nil }
@@ -57,6 +64,7 @@ func TestToggleHelp(t *testing.T) {
 	withStubBranches(t, []string{"main"}, nil)
 	withStubCommits(t, nil, nil)
 
+	stubColorSupport(t, true)
 	app := NewApp(nil, config.Default(), logs.NewAuditLog())
 	app.fetchFn = func() error { return nil }
 	app.duplicateFn = func(string, []git.Commit) ([]git.Commit, error) { return nil, nil }
@@ -79,6 +87,7 @@ func TestBranchSelectionFlowAndCommitRange(t *testing.T) {
 	withStubCommits(t, commits, nil)
 
 	cfg := config.Default()
+	stubColorSupport(t, true)
 	app := NewApp(nil, cfg, logs.NewAuditLog())
 	app.fetchFn = func() error { return nil }
 	app.duplicateFn = func(string, []git.Commit) ([]git.Commit, error) { return nil, nil }
@@ -123,6 +132,7 @@ func TestPreviewTemplateActions(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.MessageTemplate = "Transfer {source}->{target} range {range}"
+	stubColorSupport(t, true)
 	app := NewApp(nil, cfg, logs.NewAuditLog())
 	app.fetchFn = func() error { return nil }
 	app.duplicateFn = func(string, []git.Commit) ([]git.Commit, error) { return nil, nil }
@@ -145,6 +155,7 @@ func TestManualRefreshInvokesFetch(t *testing.T) {
 	withStubBranches(t, []string{"main"}, nil)
 	withStubCommits(t, nil, nil)
 
+	stubColorSupport(t, true)
 	app := NewApp(nil, config.Default(), logs.NewAuditLog())
 	count := 0
 	app.fetchFn = func() error {
@@ -163,6 +174,7 @@ func TestDuplicatePromptShown(t *testing.T) {
 	}
 	withStubCommits(t, commits, nil)
 
+	stubColorSupport(t, true)
 	app := NewApp(nil, config.Default(), logs.NewAuditLog())
 	app.fetchFn = func() error { return nil }
 	app.duplicateFn = func(target string, selection []git.Commit) ([]git.Commit, error) {
@@ -176,4 +188,22 @@ func TestDuplicatePromptShown(t *testing.T) {
 	require.True(t, app.duplicateVisible)
 	require.False(t, app.previewVisible)
 	app.hideDuplicatePrompt()
+}
+
+func TestDetectColorSupportRespectsNoColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("TERM", "xterm")
+	require.False(t, detectColorSupport())
+}
+
+func TestDetectColorSupportHandlesDumbTerm(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "dumb")
+	require.False(t, detectColorSupport())
+}
+
+func TestDetectColorSupportDefaultsToColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
+	require.True(t, detectColorSupport())
 }

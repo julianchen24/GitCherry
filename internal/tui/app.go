@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -19,7 +20,16 @@ import (
 var (
 	listBranchesFunc   = git.ListBranches
 	commitsBetweenFunc = git.CommitsBetween
+	colorSupportFn     = detectColorSupport
 )
+
+type colorPalette struct {
+	listSelectedBg   tcell.Color
+	listSelectedFg   tcell.Color
+	commitSelectedBg tcell.Color
+	commitSelectedFg tcell.Color
+	bannerText       tcell.Color
+}
 
 // App represents the terminal UI for GitCherry.
 type App struct {
@@ -27,6 +37,8 @@ type App struct {
 	config  *config.Config
 	audit   *logs.AuditLog
 	fetchFn func() error
+
+	colors colorPalette
 
 	ui    *tview.Application
 	pages *tview.Pages
@@ -84,6 +96,7 @@ func NewApp(runner *git.Runner, cfg *config.Config, audit *logs.AuditLog) *App {
 		restoreCommitIndex: -1,
 	}
 
+	app.colors = defaultPalette()
 	app.fetchFn = app.defaultFetch
 	app.duplicateFn = func(target string, commits []git.Commit) ([]git.Commit, error) {
 		return transfer.DetectDuplicates(app.runner, target, commits)
@@ -151,8 +164,8 @@ func (a *App) initialiseViews() {
 	a.BranchList.ShowSecondaryText(false)
 	a.BranchList.SetTitle("Branches")
 	a.BranchList.SetBorder(true)
-	a.BranchList.SetSelectedBackgroundColor(tcell.ColorBlue)
-	a.BranchList.SetSelectedTextColor(tcell.ColorWhite)
+	a.BranchList.SetSelectedBackgroundColor(a.colors.listSelectedBg)
+	a.BranchList.SetSelectedTextColor(a.colors.listSelectedFg)
 	a.BranchList.SetSelectedFocusOnly(true)
 	a.BranchList.AddItem("(loading branches...)", "", 0, nil)
 	a.BranchList.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
@@ -163,15 +176,32 @@ func (a *App) initialiseViews() {
 	a.CommitList.ShowSecondaryText(true)
 	a.CommitList.SetTitle("Commits")
 	a.CommitList.SetBorder(true)
-	a.CommitList.SetSelectedBackgroundColor(tcell.ColorGreen)
-	a.CommitList.SetSelectedTextColor(tcell.ColorBlack)
+	a.CommitList.SetSelectedBackgroundColor(a.colors.commitSelectedBg)
+	a.CommitList.SetSelectedTextColor(a.colors.commitSelectedFg)
 	a.CommitList.AddItem("(select a branch)", "", 0, nil)
 	a.CommitList.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
 		a.confirmCommitRange(index)
 	})
 
+	helpText := strings.Join([]string{
+		"GitCherry Keybindings",
+		"",
+		"General",
+		"  q : quit",
+		"  r : refresh remotes",
+		"  ? : toggle this help",
+		"",
+		"Commit selection",
+		"  space : mark start commit",
+		"  enter : confirm range",
+		"  b : create restore branch",
+		"",
+		"Duplicates",
+		"  y / n : answer duplicate prompt",
+	}, "\n")
+
 	a.HelpModal = tview.NewModal().
-		SetText("GitCherry Help\n\nq: quit\n?: toggle help").
+		SetText(helpText).
 		AddButtons([]string{"Close"})
 	a.HelpModal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 		a.ToggleHelp()
@@ -243,6 +273,7 @@ func (a *App) initialiseLayout() {
 		a.refreshBanner = tview.NewTextView().
 			SetText("Press 'r' to refresh remote refs").
 			SetDynamicColors(false)
+		a.refreshBanner.SetTextColor(a.colors.bannerText)
 		left.AddItem(a.refreshBanner, 1, 0, false)
 	}
 	left.AddItem(a.BranchList, 0, 1, true)
@@ -661,5 +692,35 @@ func (a *App) executeRestore(branchName string) {
 	a.loadBranchesWithFetch(false)
 	if a.branchStage == 2 {
 		a.commitTargetReset()
+	}
+}
+
+func detectColorSupport() bool {
+	if strings.ToLower(os.Getenv("NO_COLOR")) != "" {
+		return false
+	}
+	term := strings.ToLower(os.Getenv("TERM"))
+	if term == "" || term == "dumb" {
+		return false
+	}
+	return true
+}
+
+func defaultPalette() colorPalette {
+	if colorSupportFn() {
+		return colorPalette{
+			listSelectedBg:   tcell.ColorBlue,
+			listSelectedFg:   tcell.ColorWhite,
+			commitSelectedBg: tcell.ColorGreen,
+			commitSelectedFg: tcell.ColorBlack,
+			bannerText:       tcell.ColorYellow,
+		}
+	}
+	return colorPalette{
+		listSelectedBg:   tcell.ColorDefault,
+		listSelectedFg:   tcell.ColorWhite,
+		commitSelectedBg: tcell.ColorDefault,
+		commitSelectedFg: tcell.ColorWhite,
+		bannerText:       tcell.ColorWhite,
 	}
 }
