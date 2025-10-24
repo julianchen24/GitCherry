@@ -1,178 +1,156 @@
-# TODO — GitCherry
+# TODO - GitCherry
 
 Comprehensive, checkable list for implementing GitCherry (Go, CLI/TUI)
 
 ---
 
-## Milestone 0 — Bootstrap & Scaffolding
+## Milestone 0 - Bootstrap & Scaffolding
 
 * [ ] Initialize repo & module
-
-  * [ ] `go mod init github.com/<you>/gitcherry`
-  * [ ] Add deps: `tview`, `cobra`, `testify` (and optionally `golangci-lint`)
-  * [ ] Create `Makefile` (build/test/lint/run)
-  * [ ] Add CI workflow (`.github/workflows/ci.yml`): build + `go test ./...`
-  * [ ] Add `LICENSE` (MIT)
+  * [x] `go mod init github.com/<you>/gitcherry`
+  * [x] Add deps: `tview`, `cobra`, `testify` (and optionally `golangci-lint`)
+  * [x] Create `Makefile` (build/test/lint/run)
+  * [x] Add CI workflow (`.github/workflows/ci.yml`): build + `go test ./...`
+  * [x] Add `LICENSE` (MIT)
   * [ ] Add `.gitignore` (Go, editor, `.gitcherry/` logs)
-  * [ ] Seed `README.md` with brief intro + link to `docs/design_spec.md`
-* [ ] Docs folder
+  * [x] Seed `README.md` with brief intro + link to `docs/design_spec.md`
+* [x] Docs folder
+* [x] Project layout
+  * [x] `/cmd/gitcherry`
+  * [x] `/internal/git`
+  * [x] `/internal/tui`
+  * [x] `/internal/ops`
+  * [x] `/internal/config`
+  * [x] `/internal/logs`
+  * [x] `/tests` (fixtures/helpers)
 
-* [ ] Project layout
+## Milestone 0.1 - Config loader
 
-  * [ ] `/cmd/gitcherry`
-  * [ ] `/internal/git`
-  * [ ] `/internal/tui`
-  * [ ] `/internal/ops`
-  * [ ] `/internal/config`
-  * [ ] `/internal/logs`
-  * [ ] `/tests` (fixtures/helpers)
+* [x] Implement `internal/config`
+  * [x] `Config` struct with defaults (on_duplicate, preview, autorefresh, default_branch, message_template)
+  * [x] Loader: repo `.gitcherry.yml` -> `$HOME/.config/gitcherry/config.yml` -> defaults (+ env vars)
+  * [x] Unit tests: missing file, partial override, full override
 
-## Milestone 0.1 — Config loader
+## Milestone 0.2 - Git runner
 
-* [ ] Implement `internal/config`
-
-  * [ ] `Config` struct with defaults (on_duplicate, preview, autorefresh, default_branch, message_template)
-  * [ ] Loader: repo `.gitcherry.yml` → `$HOME/.config/gitcherry/config.yml` → defaults
-  * [ ] Unit tests: missing file, partial override, full override
-
-## Milestone 0.2 — Git runner
-
-* [ ] Implement `internal/git`
-
-  * [ ] `Runner` with `Run(args ...string)` (env `GIT_TERMINAL_PROMPT=0`)
-  * [ ] Helpers: `CurrentBranch`, `IsClean`, `Fetch`, `ListBranches`, `CommitsBetween`, `PatchID`
-  * [ ] `Commit` struct (Hash, Author, Date, Message, Files)
-  * [ ] Temp-repo fixtures under `/tests` and unit tests for helpers
+* [x] Implement `internal/git`
+  * [x] `Runner` with `Run(args ...string)` (env `GIT_TERMINAL_PROMPT=0`)
+  * [x] Helpers: `CurrentBranch`, `IsClean`, `Fetch`, `ListBranches`, `CommitsBetween`, `PatchID`
+  * [x] `Commit` struct (Hash, Author, Date, Message, Files)
+  * [x] Temp-repo fixtures under `/tests` and unit tests for helpers
 
 ---
 
-## Milestone 1 — CLI Skeleton (dry-run default)
+## Milestone 1 - CLI Skeleton (dry-run default)
 
-* [ ] Cobra root command in `/cmd/gitcherry`
-
-  * [ ] Global flags: `--apply` (default false), `--refresh`, `--no-preview`
-  * [ ] Subcommands: `transfer`, `revert`, `restore`, `undo`, `redo` (stubs)
-  * [ ] Pre-run: require clean workspace via `git.IsClean()`
-  * [ ] Tests: help output, unknown flag handling, dirty workspace exit
-
----
-
-## Milestone 2 — TUI Skeleton (tview)
-
-* [ ] App shell
-
-  * [ ] `App` struct with refs to git runner + config
-  * [ ] Views: BranchList, CommitList, PreviewModal, HelpModal
-  * [ ] Keybindings: `?` help, `q` quit
-  * [ ] Tests: init + help toggle
-* [ ] Branch selection view
-
-  * [ ] List local branches (blue highlight for focus)
-  * [ ] First select = source; second = target → open CommitList
-  * [ ] Optional banner: “Press `r` to refresh remotes” (wire later)
-  * [ ] Tests: selection flow state
-* [ ] Commit selection (contiguous only)
-
-  * [ ] Show commits from `CommitsBetween(target, source)`
-  * [ ] Start mark with Space, end confirm with Enter
-  * [ ] Selected range highlighted green
-  * [ ] Tests: start/end capture
+* [x] Cobra root command in `/cmd/gitcherry`
+  * [x] Global flags: `--apply`, `--refresh`, `--no-preview`
+  * [x] Subcommands: `transfer`, `revert`, `restore`, `undo`, `redo`
+  * [x] Pre-run: require clean workspace via `git.IsClean()`
+  * [x] Tests: help output, unknown flag handling, dirty workspace exit
 
 ---
 
-## Milestone 3 — Transfer (Consolidated Commit Transfer)
+## Milestone 2 - TUI Skeleton (tview)
 
-* [ ] Preview + message UX
+* [x] App shell
+  * [x] `App` struct with refs to git runner + config
+  * [x] Views: BranchList, CommitList, PreviewModal, HelpModal
+  * [x] Keybindings: `?` help, `q` quit
+  * [x] Tests: init + help toggle
+* [x] Branch selection view
+  * [x] List local branches (focus highlight)
+  * [x] First select = source; second = target -> open CommitList
+  * [x] Banner: "Press `r` to refresh remotes" (wired to fetch)
+  * [x] Tests: selection flow state
+* [x] Commit selection (contiguous only)
+  * [x] Show commits from `CommitsBetween(target, source)`
+  * [x] Start mark with Space, end confirm with Enter
+  * [x] Selected range highlighted
+  * [x] Tests: start/end capture
 
-  * [ ] Table summary (hash short, author, subject)
-  * [ ] Display target branch and “→ Will become 1 new commit”
-  * [ ] Actions: **Edit message** (multiline), **Use suggested message** (template)
-  * [ ] Tests: template rendering, action selection
-* [ ] Planner (dry-run)
+---
 
-  * [ ] Generate steps: checkout target → cherry-pick `--no-commit` range → commit
-  * [ ] CLI dry-run prints steps; TUI shows scrollable preview
-  * [ ] Tests: sequence generation
+## Milestone 3 - Transfer (Consolidated Commit Transfer)
+
+* [x] Preview + message UX
+  * [x] Table summary (hash short, author, subject)
+  * [x] Display target branch and "-> Will become 1 new commit"
+  * [x] Actions: **Edit message**, **Use suggested message**
+  * [x] Tests: template rendering, action selection
+* [x] Planner (dry-run)
+  * [x] Generate steps: checkout target -> cherry-pick `--no-commit` range -> commit
+  * [x] CLI dry-run prints steps; TUI shows preview
+  * [x] Tests: sequence generation
 * [ ] Executor (apply) with conflicts
-
-  * [ ] Run planned steps; detect conflicts; expose `ErrConflict`
-  * [ ] TUI modal: “Resolve manually or Abort?” with Continue/Abort paths
-  * [ ] CLI prints guidance and exits nonzero on conflict (when `--apply`)
+  * [x] Run planned steps
+  * [ ] Detect conflicts; expose `ErrConflict`
+  * [ ] TUI modal: "Resolve manually or Abort" flow
+  * [ ] CLI conflict guidance & non-zero exit
   * [ ] Integration tests: resolve path + abort path
-* [ ] Audit log + undo/redo enqueue
-
-  * [ ] `.gitcherry/logs/<timestamp>.json` writer
-  * [ ] `.gitcherry/undo.json` queue (push on success)
-  * [ ] Tests: serialization + queue behavior
+* [x] Audit log + undo/redo enqueue
+  * [x] `.gitcherry/logs/<timestamp>.json` writer
+  * [x] `.gitcherry/undo.json` queue (push on success)
+  * [x] Tests: serialization + queue behavior
 
 ---
 
-## Milestone 4 — Rollback & Restore
+## Milestone 4 - Rollback & Restore
 
 * [ ] `revert` operation
-
-  * [ ] Planner: `git revert --no-commit <start>^..<end>` → `git commit -m ...`
+  * [x] Planner: `git revert --no-commit <start>^..<end>` -> `git commit -m ...`
   * [ ] Conflict handling: continue/abort
   * [ ] Reuse preview + messaging
-  * [ ] Integration tests
-* [ ] `restore` operation
-
-  * [ ] Commit picker → prompt branch name → `git branch <name> <commit>`
-  * [ ] Audit log + undo entry (optional delete branch on undo)
-  * [ ] Tests: unit + integration
-
----
-
-## Milestone 5 — Duplicates & Refresh
-
-* [ ] Duplicate detection
-
-  * [ ] Compute `patch-id` for each selected commit; compare on target
-  * [ ] TUI: Ask on duplicates (Yes/No)
-  * [ ] CLI: `--on-duplicate=ask|skip|apply` (default ask; skip when non-interactive)
-  * [ ] Tests with crafted commits
-* [ ] Refresh controls
-
-  * [ ] `--refresh` flag triggers `git fetch --prune --tags`
-  * [ ] TUI key `r` performs fetch and reloads lists
-  * [ ] Tests: mocked fetch
+  * [x] Integration tests (basic success path)
+* [x] `restore` operation
+  * [x] Commit picker -> prompt branch name -> `git branch <name> <commit>`
+  * [x] Audit log + undo entry (delete via manual undo guidance)
+  * [x] Tests: unit + integration
 
 ---
 
-## Milestone 6 — CLI Parity & Polish
+## Milestone 5 - Duplicates & Refresh
 
-* [ ] Wire all cobra handlers fully
-
-  * [ ] `transfer --from --to --range a..b [--message|--edit|--auto-message] [--apply]`
-  * [ ] `revert --on HEAD --range a..b`
-  * [ ] `restore --at <commit> --branch-name <name>`
-  * [ ] `undo`, `redo`
-  * [ ] Tests: arg parsing, planner wiring
-* [ ] Help panel & colors
-
-  * [ ] `?` shows keybindings
-  * [ ] ANSI-safe color constants with monochrome fallback
-  * [ ] Tests: color guard logic
-* [ ] Usage docs
-
-  * [ ] Create `docs/USAGE.md` (Quickstart, TUI flow, CLI examples, conflict handling)
+* [x] Duplicate detection
+  * [x] Compute `patch-id` for selected commits; compare on target
+  * [x] TUI: ask on duplicates (Yes/No)
+  * [x] CLI: `--on-duplicate=ask|skip|apply` defaulting to skip when non-interactive
+  * [x] Tests with crafted commits
+* [x] Refresh controls
+  * [x] `--refresh` flag triggers `git fetch --prune --tags`
+  * [x] TUI key `r` performs fetch and reloads lists
+  * [x] Tests: mocked fetch
 
 ---
 
-## Milestone 7 — Test Hardening & Release
+## Milestone 6 - CLI Parity & Polish
 
-* [ ] TUI golden snapshot tests (`/tests/golden`)
+* [x] Wire all cobra handlers fully
+  * [x] `transfer --from --to --range a..b [--message|--edit|--auto-message] [--apply]`
+  * [x] `revert --on HEAD --range a..b`
+  * [x] `restore --at <commit> --branch-name <name>`
+  * [x] `undo`, `redo`
+  * [x] Tests: arg parsing, planner wiring
+* [x] Help panel & colors
+  * [x] `?` shows keybindings
+  * [x] ANSI-safe color constants with monochrome fallback
+  * [x] Tests: color guard logic
+* [x] Usage docs
+  * [x] Create `docs/USAGE.md` (Quickstart, TUI flow, CLI examples, conflict handling)
 
-  * [ ] Deterministic dataset
-  * [ ] `make regen-golden` target
-* [ ] Cross-platform builds
+---
 
-  * [ ] `Makefile` targets for darwin/linux/windows amd64/arm64
+## Milestone 7 - Test Hardening & Release
+
+* [x] TUI golden snapshot tests (`/tests/golden`)
+  * [x] Deterministic dataset
+  * [x] `make regen-golden` target
+* [x] Cross-platform builds
+  * [x] `Makefile` targets for darwin/linux/windows amd64/arm64
   * [ ] (Optional) `goreleaser` config
-* [ ] README updates
-
-  * [ ] Install instructions (binaries or `go install`)
-  * [ ] Link to `docs/USAGE.md`
+* [x] README updates
+  * [x] Install instructions (binaries or `go install`)
+  * [x] Link to `docs/USAGE.md`
 
 ---
 
@@ -190,4 +168,3 @@ Comprehensive, checkable list for implementing GitCherry (Go, CLI/TUI)
 
 * [ ] Keep PRs small (per milestone/step)
 * [ ] Ensure CI stays green before moving to next milestone
-
