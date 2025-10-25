@@ -18,6 +18,8 @@
 
 ## Demo
 
+<img width="1108" height="711" alt="image" src="https://github.com/user-attachments/assets/3016b74c-f96b-4427-82b1-d188f9522620" />
+
 ## Architecture Overview
 ```
 ┌────────────┐   commands/flags    ┌──────────────┐
