@@ -20,6 +20,8 @@
 
 <img width="1108" height="711" alt="image" src="https://github.com/user-attachments/assets/3016b74c-f96b-4427-82b1-d188f9522620" />
 
+<img width="1106" height="705" alt="image" src="https://github.com/user-attachments/assets/d9a58f75-8248-4b3d-a34d-1ed69189876b" />
+
 ## Architecture Overview
 ```
 ┌────────────┐   commands/flags    ┌──────────────┐
@@ -48,7 +50,7 @@
 ## Installation
 ```bash
 # Install from source (Go 1.22+)
-go install github.com/<you>/gitcherry/cmd/gitcherry@latest
+go install github.com/julianchen24/gitcherry/cmd/gitcherry@latest
 
 # Build host binary
 make build
@@ -90,7 +92,7 @@ message_template: |
   Range: {range}
 ```
 
-Environment variables `GITCHERRY_*` mirror these fields. When unset, defaults shown above are used.
+Environment variables `GITCHERRY_*` mirror these fields. When unset, the defaults shown above are used.
 
 ## Command Reference
 | Command | Description |
@@ -108,7 +110,7 @@ All commands respect `--apply` for dry-run vs. execution and `--on-duplicate` (a
 - Resolve the conflicts manually, then run:
   - `git cherry-pick --continue` (for transfers)
   - `git revert --continue` (for reverts)
-- To abandon the operation use the corresponding `--abort` form.
+- To abandon the operation, use the corresponding `--abort` form.
 - Each successful apply writes an audit entry (`.gitcherry/logs/`) and updates the undo stack (`.gitcherry/undo.json`), enabling inspection or rollback.
 
 ## Development Guide
