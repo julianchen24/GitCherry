@@ -141,6 +141,12 @@ Comprehensive, checkable list for implementing GitCherry (Go, CLI/TUI)
 ---
 
 ## Milestone 7 - Test Hardening & Release
+s
+  * [x] Create `docs/USAGE.md` (Quickstart, TUI flow, CLI examples, conflict handling)
+
+---
+
+## Milestone 7 � Test Hardening & Release
 
 * [x] TUI golden snapshot tests (`/tests/golden`)
   * [x] Deterministic dataset
