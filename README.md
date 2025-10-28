@@ -142,7 +142,3 @@ Additional design notes live in:
 ## License
 MIT License — see [`LICENSE`](LICENSE).
 
-## Acknowledgements / Credits
-- Built with Go 1.22+, Cobra, and tview.
-- Snapshot testing inspired by existing golden-file patterns in the Go ecosystem.
-- Thanks to the open-source Git tooling community for continual inspiration.
