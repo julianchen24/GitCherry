@@ -10,18 +10,17 @@ Streamline professional Git workflows by allowing users to visually select commi
 
 **Core Philosophy:**
 
-* Minimal, reliable, and terminal-native.
-* Zero magic — all actions transparent and reversible.
-* Always safe: user confirms every potentially destructive step.
+* Minimal, reliable, and terminal-native
+* Zero magic — all actions transparent and reversible
+* Always safe: user confirms every potentially destructive step
 
 ---
 
 ## 2. Target User & Licensing
 
-* **Primary Users:** Developers and engineers working in professional team environments who need deterministic cherry-picking and history management without SHA complexity.
-* **Use Case:** Day-to-day team branching, backports, and feature management.
-* **License:** MIT License (open-source, simple reuse).
-* **Contributions:** Accept via PRs; include `CONTRIBUTING.md` with brief guidelines.
+* **Primary Users:** Developers and engineers working in professional team environments who need deterministic cherry-picking and history management without SHA complexity
+* **Use Case:** Day-to-day team branching, backports, and feature management
+* **License:** MIT License (open-source, simple reuse)
 * **Supported Platforms:**
 
   * GitHub and Bitbucket (primary)
@@ -37,7 +36,7 @@ Manual `git cherry-pick` and `git revert` workflows are:
 
 * Error-prone (SHA-based)
 * Redundant (reintroduce commits)
-* Non-atomic (require multiple manual commands)
+* Non-atomic (requires multiple manual commands)
 * Opaque (no visual confirmation)
 
 ### Solution:
@@ -49,7 +48,7 @@ GitCherry provides:
 * **Consistent commit consolidation** (auto-squash into one clean commit)
 * **Safe rollback & restoration** (structured undo/redo)
 
-By enforcing structured operations, GitCherry eliminates fragmented history, redundant commits, and lost SHAs.
+By enforcing structured operations, GitCherry eliminates fragmented history, redundant commits, and lost SHAs
 
 ---
 
@@ -57,12 +56,12 @@ By enforcing structured operations, GitCherry eliminates fragmented history, red
 
 ### A. Consolidated Commit Transfer
 
-**Purpose:** Move a contiguous range of commits from a source branch to a target branch, and squash them into one atomic commit.
+**Purpose:** Move a contiguous range of commits from a source branch to a target branch, and squash them into one atomic commit
 **Workflow:**
 
-1. User selects source and target branches.
-2. TUI displays commits (chronological, contiguous only).
-3. User highlights range → preview table → confirm.
+1. User selects source and target branches
+2. TUI displays commits (chronological, contiguous only)
+3. User highlights range → preview table → confirm
 4. GitCherry executes:
 
    ```bash
@@ -73,31 +72,31 @@ By enforcing structured operations, GitCherry eliminates fragmented history, red
 5. Conflict handling (if any):
 
    * Show “Merge conflict detected. Resolve or abort?”
-   * On resolve, continue; on abort, restore pre-op state.
-6. Write operation details to `.gitcherry/logs/YYYYMMDD_HHMM.json`.
+   * On resolve, continue; on abort, restore pre-op state
+6. Write operation details to `.gitcherry/logs/YYYYMMDD_HHMM.json`
 
 ### B. Selective Rollback
 
-**Purpose:** Revert one or more contiguous commits from the current branch.
+**Purpose:** Revert one or more contiguous commits from the current branch
 **Workflow:**
 
-1. User highlights commits to revert.
-2. TUI shows preview → “Will undo 3 commits.”
+1. User highlights commits to revert
+2. TUI shows preview → “Will undo 3 commits”
 3. GitCherry runs:
 
    ```bash
    git revert --no-commit <start>^..<end>
    git commit -m "<user or auto message>"
    ```
-4. If conflict → TUI prompt for manual resolve/abort.
+4. If conflict → TUI prompt for manual resolve/abort
 
 ### C. Branch Restoration
 
-**Purpose:** Recreate a branch from any historical commit.
+**Purpose:** Recreate a branch from any historical commit
 **Workflow:**
 
-1. User selects a commit from the log.
-2. Prompt: “Enter new branch name” (default suggestion `feature/resurrected-<oldbranch>`).
+1. User selects a commit from the log
+2. Prompt: “Enter new branch name” (default suggestion `feature/resurrected-<oldbranch>`)
 3. Execute:
 
    ```bash
@@ -112,14 +111,14 @@ By enforcing structured operations, GitCherry eliminates fragmented history, red
 
 * **TUI (default):**
 
-  * Clean, keyboard-only navigation (`tview`).
-  * Color-coded commit states.
-  * Built-in help (`?`) showing key shortcuts.
-  * Previews of commit summaries and diffs.
-  * Prompts for all confirmations (conflicts, messages, etc.).
+  * Clean, keyboard-only navigation (`tview`)
+  * Color-coded commit states
+  * Built-in help (`?`) showing key shortcuts
+  * Previews of commit summaries and diffs
+  * Prompts for all confirmations (conflicts, messages, etc.)
 * **CLI:**
 
-  * Mirrors all operations (`transfer`, `revert`, `restore`, `undo`, `redo`).
+  * Mirrors all operations (`transfer`, `revert`, `restore`, `undo`, `redo`)
   * Flags:
 
     ```
@@ -152,7 +151,7 @@ default_branch: release/main
 message_template: "[Transfer] Moved commits from {source} → {target}\nRange: {range}"
 ```
 
-**Never required**, but supported for convenience.
+**Never required**, but supported for convenience
 
 ---
 
@@ -209,7 +208,7 @@ type TUIState struct {
   Merge conflict detected. Resolve manually or abort?
   [Resolve] [Abort]
   ```
-* On resolve → user presses “Continue” to finalize.
+* On resolve → user presses “Continue” to finalize
 * On abort → rollback with:
 
   ```bash
@@ -225,17 +224,17 @@ type TUIState struct {
 ### Workspace Not Clean
 
 * Abort early with message:
-  *“Uncommitted changes detected. Please commit or stash before using GitCherry.”*
+  *“Uncommitted changes detected. Please commit or stash before using GitCherry”*
 
 ### Duplicate Commits
 
-* Detect with `git patch-id`.
-* Warn + ask (default behavior).
+* Detect with `git patch-id`
+* Warn + ask (default behavior)
 
 ### Unexpected Errors
 
-* Log error + operation snapshot in `.gitcherry/errors/YYYYMMDD_HHMM.log`.
-* Always exit with descriptive error codes.
+* Log error + operation snapshot in `.gitcherry/errors/YYYYMMDD_HHMM.log`
+* Always exit with descriptive error codes
 
 ---
 
@@ -243,8 +242,8 @@ type TUIState struct {
 
 * Logs stored in `.gitcherry/`
 
-  * `/logs` → JSON records of all operations.
-  * `/undo.json` → undo/redo queue.
+  * `/logs` → JSON records of all operations
+  * `/undo.json` → undo/redo queue
 * Each log includes:
 
   ```json
@@ -279,33 +278,33 @@ Monochrome fallback auto-detected for basic terminals.
 
 ### Unit Tests
 
-* Core logic: git command wrapper, conflict detection, patch-id comparison.
-* Data structures: operation serialization/deserialization.
-* Config parsing and defaults.
+* Core logic: git command wrapper, conflict detection, patch-id comparison
+* Data structures: operation serialization/deserialization
+* Config parsing and defaults
 
 ### Integration Tests
 
-* Use a temporary git repo fixture.
+* Use a temporary git repo fixture
 * Test all major flows:
 
-  * Transfer success and failure.
-  * Rollback.
-  * Restoration.
-  * Undo/redo.
-* Validate audit logs generated correctly.
+  * Transfer success and failure
+  * Rollback
+  * Restoration
+  * Undo/redo
+* Validate audit logs generated correctly
 
 ### TUI Tests
 
-* Snapshot-based tests (using `expect` or `termtest`).
-* Verify key commands, navigation, and prompts.
+* Snapshot-based tests (using `expect` or `termtest`)
+* Verify key commands, navigation, and prompts
 
 ### Performance Tests
 
-* Ensure TUI rendering stays under 50ms update latency on large commit lists (≥1000 commits).
+* Ensure TUI rendering stays under 50ms update latency on large commit lists (≥1000 commits)
 
 ### Error Recovery Tests
 
-* Simulate merge conflicts, abort paths, duplicate commits, and bad configs.
+* Simulate merge conflicts, abort paths, duplicate commits, and bad configs
 
 ---
 
